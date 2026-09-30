@@ -1,5 +1,5 @@
 import console from "node:console";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { setTimeout } from "node:timers/promises";
@@ -7,7 +7,7 @@ import { setTimeout } from "node:timers/promises";
 import type { TestResult } from "@allurereport/core-api";
 import { type Plugin, type QualityGateRule, md5 } from "@allurereport/plugin-api";
 import AwesomePlugin from "@allurereport/plugin-awesome";
-import { BufferResultFile, type ResultsReader } from "@allurereport/reader-api";
+import { BufferResultFile, PathResultFile, type ResultsReader } from "@allurereport/reader-api";
 import { KnownError } from "@allurereport/service";
 import { Attachment, epic, feature, label, step, story } from "allure-js-commons";
 import type { Mock, Mocked } from "vitest";
@@ -680,6 +680,39 @@ describe("report", () => {
     }
   });
 
+  it("should preserve the enumerated path when reading result directory files", async () => {
+    const physicalResultsDir = await mkdtemp(join(tmpdir(), "allure3-read-directory-path-target-"));
+    const resultsDir = join(await mkdtemp(join(tmpdir(), "allure3-read-directory-path-link-")), "results");
+    await symlink(physicalResultsDir, resultsDir, "dir");
+    const resultPath = join(resultsDir, "result.json");
+    const config = await resolveConfig({
+      name: "Allure Report",
+    });
+    let observedPath: string | undefined;
+    const reader: ResultsReader = {
+      matches: vi.fn(async (data) => {
+        observedPath = data instanceof PathResultFile ? data.path : undefined;
+
+        return true;
+      }),
+      read: vi.fn().mockResolvedValue(true),
+      readerId: () => "enumerated-path",
+    };
+
+    await writeFile(join(physicalResultsDir, "result.json"), "{}");
+
+    const allureReport = new AllureReport({
+      ...config,
+      readers: [reader],
+    });
+
+    await allureReport.start();
+    await allureReport.readDirectory(resultsDir);
+
+    expect(observedPath).toBe(resultPath);
+    expect(reader.read).toHaveBeenCalledTimes(1);
+  });
+
   it("should ignore .tmp files when reading result directory", async () => {
     const resultsDir = await mkdtemp(join(tmpdir(), "allure3-read-directory-tmp-"));
     const config = await resolveConfig({
@@ -1080,10 +1113,6 @@ describe("report", () => {
         expect.objectContaining({ key: PERF_METRIC_NAMES.generateReadResults, value: expect.any(Number) }),
         expect.objectContaining({ key: PERF_METRIC_NAMES.generateReadResultsFiles, value: 1 }),
         expect.objectContaining({
-          key: `${PERF_METRIC_NAMES.generateReadResultsRealpath}.totalMs`,
-          value: expect.any(Number),
-        }),
-        expect.objectContaining({
           key: `${PERF_METRIC_NAMES.generateReadResultsReaderRead}.totalMs`,
           value: expect.any(Number),
         }),
@@ -1092,6 +1121,9 @@ describe("report", () => {
         expect.objectContaining({ key: `${PERF_METRIC_PREFIXES.generatePlugin}p1.generatedFiles`, value: 1 }),
       ]),
     );
+    expect(
+      metrics.filter(({ key }: { key: string }) => key.startsWith(`${PERF_METRIC_NAMES.generateReadResultsRealpath}.`)),
+    ).toEqual([]);
   });
 
   it("should write opt-in read perf metrics for a single result file", async () => {
