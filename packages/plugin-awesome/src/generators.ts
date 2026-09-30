@@ -153,7 +153,12 @@ const createBreadcrumbs = (convertedTr: ReportTestResult) => {
 
 const writeConcurrently = async <T>(items: readonly T[], write: (item: T) => Promise<void>, concurrency = 64) => {
   for (let i = 0; i < items.length; i += concurrency) {
-    await Promise.all(items.slice(i, i + concurrency).map(write));
+    const results = await Promise.allSettled(items.slice(i, i + concurrency).map(write));
+    const rejected = results.find((result) => result.status === "rejected");
+
+    if (rejected?.status === "rejected") {
+      throw rejected.reason;
+    }
   }
 };
 
@@ -630,19 +635,23 @@ export const generateAttachmentsFiles = async (
   contentFunction: (id: string) => Promise<ResultFile | undefined>,
 ) => {
   const result = new Map<string, string>();
-  for (const { id, ext, ...link } of attachmentLinks) {
+
+  await writeConcurrently(attachmentLinks, async ({ id, ext, ...link }) => {
     if (link.missed) {
-      continue;
+      return;
     }
+
     const content = await contentFunction(id);
 
     if (!content) {
-      continue;
+      return;
     }
+
     const src = `${id}${ext}`;
     await writer.writeAttachment(src, content);
     result.set(id, src);
-  }
+  });
+
   return result;
 };
 

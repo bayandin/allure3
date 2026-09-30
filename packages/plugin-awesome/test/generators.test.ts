@@ -925,6 +925,114 @@ describe("generateQualityGateResults", () => {
 });
 
 describe("generateAttachmentsFiles", () => {
+  it("should read attachment content concurrently", async () => {
+    const writtenContent = { kind: "attachment" } as ResultFile;
+    const writtenAttachments = new Map<string, ResultFile>();
+    const writer: AwesomeDataWriter = {
+      writeData: vi.fn().mockResolvedValue(undefined),
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: async (src, content) => {
+        writtenAttachments.set(src, content);
+      },
+    };
+    const attachmentLinks: AttachmentLink[] = Array.from({ length: 65 }, (_, index) => ({
+      id: `attachment-${index}`,
+      ext: ".txt",
+      originalFileName: `attachment-${index}.txt`,
+      name: `attachment-${index}`,
+      missed: false,
+      used: true,
+    }));
+    const expectedAttachments = new Map(attachmentLinks.map(({ id, ext }) => [id, `${id}${ext}`]));
+    let releaseContent!: () => void;
+    const contentGate = new Promise<void>((resolve) => {
+      releaseContent = resolve;
+    });
+    let activeReads = 0;
+    let peakActiveReads = 0;
+    const contentFunction = vi.fn(async () => {
+      activeReads++;
+      peakActiveReads = Math.max(peakActiveReads, activeReads);
+
+      try {
+        await contentGate;
+        return writtenContent;
+      } finally {
+        activeReads--;
+      }
+    });
+
+    queueMicrotask(() => releaseContent());
+    const result = await generateAttachmentsFiles(writer, attachmentLinks, contentFunction);
+
+    expect(peakActiveReads).toBe(64);
+    expect(contentFunction).toHaveBeenCalledTimes(65);
+    expect(result).toEqual(expectedAttachments);
+    expect([...writtenAttachments.keys()].sort()).toEqual([...expectedAttachments.values()].sort());
+    expect([...writtenAttachments.values()]).toEqual(Array(65).fill(writtenContent));
+  });
+
+  it("waits for all in-flight writes before propagating a write failure", async () => {
+    const writtenContent = { kind: "attachment" } as ResultFile;
+    const completedWrites: string[] = [];
+    let releaseSecondWrite!: () => void;
+    const secondWrite = new Promise<void>((resolve) => {
+      releaseSecondWrite = resolve;
+    });
+    const writer: AwesomeDataWriter = {
+      writeData: vi.fn().mockResolvedValue(undefined),
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: async (src) => {
+        if (src === "first.txt") {
+          throw new Error("first write failed");
+        }
+
+        await secondWrite;
+        completedWrites.push(src);
+      },
+    };
+    const attachmentLinks: AttachmentLink[] = [
+      {
+        id: "first",
+        ext: ".txt",
+        originalFileName: "first.txt",
+        name: "first",
+        missed: false,
+        used: true,
+      },
+      {
+        id: "second",
+        ext: ".txt",
+        originalFileName: "second.txt",
+        name: "second",
+        missed: false,
+        used: true,
+      },
+    ];
+
+    const generation = generateAttachmentsFiles(writer, attachmentLinks, async () => writtenContent);
+    let settled = false;
+    const observedSettlement = generation.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+
+    releaseSecondWrite();
+
+    await expect(generation).rejects.toThrow("first write failed");
+    await observedSettlement;
+    expect(completedWrites).toEqual(["second.txt"]);
+  });
+
   it("should skip missed attachments and keep writing later available attachments", async () => {
     const writtenContent = { kind: "attachment" } as ResultFile;
     const writer: AwesomeDataWriter = {
