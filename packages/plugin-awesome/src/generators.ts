@@ -241,11 +241,11 @@ export const generateTestCases = async (writer: AwesomeDataWriter, trs: ReportTe
 };
 
 export const generateTestEnvGroups = async (writer: AwesomeDataWriter, groups: TestEnvGroup[]) => {
-  for (const group of groups) {
+  await writeConcurrently(groups, (group) => {
     const src = joinPosixPath("test-env-groups", `${group.id}.json`);
 
-    await writer.writeData(src, group);
-  }
+    return writer.writeData(src, group);
+  });
 };
 
 export const generateNav = async (writer: AwesomeDataWriter, trs: ReportTestResult[], filename = "nav.json") => {

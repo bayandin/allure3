@@ -4,6 +4,7 @@ import type {
   AttachmentLink,
   EnvironmentIdentity,
   Statistic,
+  TestEnvGroup,
   HistoryTestResult,
   TestFixtureResult,
   TestResult,
@@ -28,6 +29,7 @@ import {
   generateResolutionCategories,
   generateSearchIndex,
   generateStatistic,
+  generateTestEnvGroups,
   generateTestResults,
   generateTree,
   getRunSummary,
@@ -948,6 +950,53 @@ describe("generateQualityGateResults", () => {
     expect(writer.writeWidget).toHaveBeenCalledWith("quality-gate.json", {
       default: [expect.not.objectContaining({ testResultsTree: expect.anything() })],
     });
+  });
+});
+
+describe("generateTestEnvGroups", () => {
+  it("starts the 65th group before the first write finishes and preserves output paths and payloads", async () => {
+    const groups: TestEnvGroup[] = Array.from({ length: 65 }, (_, index) => ({
+      id: `group-${index}`,
+      name: `Group ${index}`,
+      status: "passed",
+      testResultsByEnv: { [`env-${index}`]: `test-${index}` },
+    }));
+    const startedWrites: string[] = [];
+    const writtenGroups = new Map<string, TestEnvGroup>();
+    let releaseFirstWrite!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirstWrite = resolve;
+    });
+    const writer: AwesomeDataWriter = {
+      writeData: async (src, group) => {
+        startedWrites.push(src);
+
+        if (src === "test-env-groups/group-0.json") {
+          await firstWrite;
+        }
+
+        writtenGroups.set(src, group);
+      },
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: vi.fn().mockResolvedValue(undefined),
+    };
+    const generation = generateTestEnvGroups(writer, groups);
+
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(startedWrites, "the 65th group should start while the first write is gated").toContain(
+        "test-env-groups/group-64.json",
+      );
+    } finally {
+      releaseFirstWrite();
+    }
+
+    await generation;
+
+    expect(Object.fromEntries(writtenGroups)).toEqual(
+      Object.fromEntries(groups.map((group) => [`test-env-groups/${group.id}.json`, group])),
+    );
   });
 });
 
