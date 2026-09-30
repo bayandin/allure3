@@ -27,6 +27,8 @@ export interface PluginConstructorContext {
 
 export interface ReportFiles {
   addFile(path: string, data: Buffer): Promise<string>;
+
+  addFileFrom?(path: string, file: ResultFile, knownContentLength?: number): Promise<string | undefined>;
 }
 
 export interface PluginState {

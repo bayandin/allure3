@@ -648,6 +648,33 @@ describe("generateStatistic", () => {
 });
 
 describe("generateGlobals", () => {
+  // Catches dropping content length metadata while forwarding global attachments to the writer.
+  it("forwards known content length for global attachments", async () => {
+    const writer: AwesomeDataWriter = {
+      writeData: vi.fn().mockResolvedValue(undefined),
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: vi.fn().mockResolvedValue(undefined),
+    };
+    const attachment = {
+      id: "global",
+      ext: ".txt",
+      originalFileName: "global.txt",
+      contentLength: 37,
+      missed: false,
+      used: true,
+    };
+    const content = { kind: "attachment" } as ResultFile;
+
+    await generateGlobals(writer, {
+      globalAttachments: [attachment],
+      contentFunction: vi.fn().mockResolvedValue(content),
+    });
+
+    expect(writer.writeAttachment).toHaveBeenCalledWith("global.txt", content, 37);
+  });
+
+  // Catches changing the shape of globals that omit optional attachment lengths.
   it("should keep grouped globals by environment and exclude unwritten attachments from grouped payloads", async () => {
     const writtenWidgets = new Map<string, unknown>();
     const writtenContent = { kind: "attachment" } as any;
@@ -925,6 +952,31 @@ describe("generateQualityGateResults", () => {
 });
 
 describe("generateAttachmentsFiles", () => {
+  // Catches dropping content length metadata while forwarding normal attachments to the writer.
+  it("forwards known content length for normal attachments", async () => {
+    const writtenContent = { kind: "attachment" } as ResultFile;
+    const writer: AwesomeDataWriter = {
+      writeData: vi.fn().mockResolvedValue(undefined),
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: vi.fn().mockResolvedValue(undefined),
+    };
+    const attachmentLink: AttachmentLink = {
+      id: "known",
+      ext: ".txt",
+      originalFileName: "known.txt",
+      name: "known",
+      contentLength: 29,
+      missed: false,
+      used: true,
+    };
+
+    await generateAttachmentsFiles(writer, [attachmentLink], vi.fn().mockResolvedValue(writtenContent));
+
+    expect(writer.writeAttachment).toHaveBeenCalledWith("known.txt", writtenContent, 29);
+  });
+
+  // Catches replacing the existing two-argument call for attachments without optional length metadata.
   it("should read attachment content concurrently", async () => {
     const writtenContent = { kind: "attachment" } as ResultFile;
     const writtenAttachments = new Map<string, ResultFile>();

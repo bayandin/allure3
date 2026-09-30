@@ -16,7 +16,7 @@ export interface AwesomeDataWriter {
 
   writeTestCase(test: ReportTestResult): Promise<void>;
 
-  writeAttachment(source: string, file: ResultFile): Promise<void>;
+  writeAttachment(source: string, file: ResultFile, knownContentLength?: number): Promise<void>;
 }
 
 export class FileSystemReportDataWriter implements AwesomeDataWriter {
@@ -55,7 +55,7 @@ export class FileSystemReportDataWriter implements AwesomeDataWriter {
     await writeFile(resolve(this.#testResultsDir, `${test.id}.json`), JSON.stringify(test), { encoding: "utf-8" });
   }
 
-  async writeAttachment(source: string, file: ResultFile): Promise<void> {
+  async writeAttachment(source: string, file: ResultFile, _knownContentLength?: number): Promise<void> {
     await this.#attachmentsDirReady;
     await file.writeTo(resolve(this.#attachmentsDir, source));
   }
@@ -82,7 +82,7 @@ export class InMemoryReportDataWriter implements AwesomeDataWriter {
     this.#data[dist] = Buffer.from(JSON.stringify(test), "utf-8");
   }
 
-  async writeAttachment(fileName: string, file: ResultFile): Promise<void> {
+  async writeAttachment(fileName: string, file: ResultFile, _knownContentLength?: number): Promise<void> {
     const dist = joinPosixPath("data", "attachments", fileName);
 
     const content = await file.asBuffer();
@@ -110,7 +110,14 @@ export class ReportFileDataWriter implements AwesomeDataWriter {
     await this.reportFiles.addFile(joinPosixPath("widgets", fileName), Buffer.from(JSON.stringify(data), "utf-8"));
   }
 
-  async writeAttachment(source: string, file: ResultFile): Promise<void> {
+  async writeAttachment(source: string, file: ResultFile, knownContentLength?: number): Promise<void> {
+    const path = joinPosixPath("data", "attachments", source);
+
+    if (this.reportFiles.addFileFrom) {
+      await this.reportFiles.addFileFrom(path, file, knownContentLength);
+      return;
+    }
+
     const contentBuffer = await file.asBuffer();
 
     if (!contentBuffer) {
@@ -118,7 +125,7 @@ export class ReportFileDataWriter implements AwesomeDataWriter {
       return;
     }
 
-    await this.reportFiles.addFile(joinPosixPath("data", "attachments", source), contentBuffer);
+    await this.reportFiles.addFile(path, contentBuffer);
   }
 
   async writeTestCase(test: ReportTestResult): Promise<void> {

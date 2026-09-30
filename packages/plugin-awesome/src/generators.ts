@@ -648,7 +648,13 @@ export const generateAttachmentsFiles = async (
     }
 
     const src = `${id}${ext}`;
-    await writer.writeAttachment(src, content);
+    const knownContentLength = "contentLength" in link ? link.contentLength : undefined;
+
+    if (knownContentLength === undefined) {
+      await writer.writeAttachment(src, content);
+    } else {
+      await writer.writeAttachment(src, content, knownContentLength);
+    }
     result.set(id, src);
   });
 
@@ -703,7 +709,13 @@ export const generateGlobals = async (
       continue;
     }
 
-    await writer.writeAttachment(src, content);
+    const knownContentLength = "contentLength" in attachment ? attachment.contentLength : undefined;
+
+    if (knownContentLength === undefined) {
+      await writer.writeAttachment(src, content);
+    } else {
+      await writer.writeAttachment(src, content, knownContentLength);
+    }
 
     globals.attachments.push(attachment);
   }
