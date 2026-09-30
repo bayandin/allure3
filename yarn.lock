@@ -133,7 +133,6 @@ __metadata:
     handlebars: "npm:^4.7.9"
     jiti: "npm:^2.5.1"
     node-stream-zip: "npm:^1.15.0"
-    p-limit: "npm:^7.3.0"
     rimraf: "npm:^6"
     tslib: "npm:^2.7.0"
     typescript: "npm:^5"

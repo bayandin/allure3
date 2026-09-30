@@ -51,7 +51,6 @@ import {
 import { generateSummary } from "@allurereport/summary";
 import { glob } from "glob";
 import ZipReadStream from "node-stream-zip";
-import pLimit from "p-limit";
 import ZipWriteStream from "zip-stream";
 
 import type { FullConfig, PluginInstance } from "./api.js";
@@ -68,6 +67,7 @@ import {
   createReportArtifact,
   deduplicateDumpInputs,
 } from "./utils/artifacts.js";
+import { forEachConcurrently } from "./utils/concurrency.js";
 import { environmentIdentityById, environmentIdentityByName } from "./utils/environment.js";
 import { RealtimeEventsDispatcher, RealtimeSubscriber } from "./utils/event.js";
 import {
@@ -574,26 +574,20 @@ export class AllureReport {
             .filter((dirent) => dirent.isFile() && !dirent.name.endsWith(".tmp"))
             .sort((a, b) => a.name.localeCompare(b.name)),
         );
-        const limit = pLimit(readConcurrency());
-
         incrementPerfCounter(PERF_METRIC_NAMES.generateReadResultsFiles, entries.length, {
           ...WORKLOAD_PERF_METRIC,
           title: "Input files",
           unit: "files",
         });
 
-        await Promise.all(
-          entries.map((dirent) =>
-            limit(async () => {
-              try {
-                const path = join(resultsDirPath, dirent.name);
-                await this.readResult(new PathResultFile(path, dirent.name));
-              } catch (e) {
-                console.error(`can't read result file ${dirent.name}`, e);
-              }
-            }),
-          ),
-        );
+        await forEachConcurrently(entries, readConcurrency(), async (dirent) => {
+          try {
+            const path = join(resultsDirPath, dirent.name);
+            await this.readResult(new PathResultFile(path, dirent.name));
+          } catch (e) {
+            console.error(`can't read result file ${dirent.name}`, e);
+          }
+        });
       } catch (e) {
         console.error("can't read directory", e);
       }

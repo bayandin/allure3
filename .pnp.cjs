@@ -350,7 +350,6 @@ const RAW_RUNTIME_STATE =
           ["handlebars", "npm:4.7.9"],\
           ["jiti", "npm:2.6.1"],\
           ["node-stream-zip", "npm:1.15.0"],\
-          ["p-limit", "npm:7.3.0"],\
           ["rimraf", "npm:6.1.2"],\
           ["tslib", "npm:2.7.0"],\
           ["typescript", "patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"],\
