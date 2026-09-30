@@ -8,9 +8,9 @@ import {
   readSync,
   statSync,
 } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type { Readable } from "node:stream";
-import "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 
 import type { ResultFile } from "@allurereport/plugin-api";
@@ -152,6 +152,30 @@ export class PathResultFile extends BaseResultFile {
 
   getContentLength(): number | undefined {
     return statSync(this.path, { throwIfNoEntry: false })?.size;
+  }
+
+  async asJson<T>(): Promise<T | undefined> {
+    if (this.constructor !== PathResultFile) {
+      return await super.asJson<T>();
+    }
+
+    if (!existsSync(this.path)) {
+      return undefined;
+    }
+
+    return JSON.parse(await readFile(this.path, "utf8")) as T;
+  }
+
+  async asBuffer(): Promise<Buffer | undefined> {
+    if (this.constructor !== PathResultFile) {
+      return await super.asBuffer();
+    }
+
+    if (!existsSync(this.path)) {
+      return undefined;
+    }
+
+    return await readFile(this.path);
   }
 }
 
