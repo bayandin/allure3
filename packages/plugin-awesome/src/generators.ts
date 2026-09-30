@@ -152,13 +152,34 @@ const createBreadcrumbs = (convertedTr: ReportTestResult) => {
 };
 
 const writeConcurrently = async <T>(items: readonly T[], write: (item: T) => Promise<void>, concurrency = 64) => {
-  for (let i = 0; i < items.length; i += concurrency) {
-    const results = await Promise.allSettled(items.slice(i, i + concurrency).map(write));
-    const rejected = results.find((result) => result.status === "rejected");
+  let nextIndex = 0;
+  let rejection: { index: number; reason: unknown } | undefined;
+  const recordRejection = (index: number, reason: unknown) => {
+    const currentRejection = rejection;
 
-    if (rejected?.status === "rejected") {
-      throw rejected.reason;
+    if (!currentRejection || index < currentRejection.index) {
+      rejection = { index, reason };
     }
+  };
+
+  const worker = async () => {
+    while (nextIndex < items.length && !rejection) {
+      const index = nextIndex++;
+
+      try {
+        await write(items[index]);
+      } catch (reason) {
+        recordRejection(index, reason);
+      }
+    }
+  };
+
+  const workerCount = Math.min(concurrency, 64, items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, worker));
+
+  if (rejection) {
+    throw rejection.reason;
   }
 };
 

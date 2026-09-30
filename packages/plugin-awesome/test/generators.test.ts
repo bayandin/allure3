@@ -976,6 +976,46 @@ describe("generateAttachmentsFiles", () => {
     expect(writer.writeAttachment).toHaveBeenCalledWith("known.txt", writtenContent, 29);
   });
 
+  it("starts the next attachment while an earlier batch write is still pending", async () => {
+    const writtenContent = { kind: "attachment" } as ResultFile;
+    const startedWrites: string[] = [];
+    let releaseSlowWrite!: () => void;
+    const slowWrite = new Promise<void>((resolve) => {
+      releaseSlowWrite = resolve;
+    });
+    const writer: AwesomeDataWriter = {
+      writeData: vi.fn().mockResolvedValue(undefined),
+      writeWidget: vi.fn().mockResolvedValue(undefined),
+      writeTestCase: vi.fn().mockResolvedValue(undefined),
+      writeAttachment: async (src) => {
+        startedWrites.push(src);
+
+        if (src === "attachment-0.txt") {
+          await slowWrite;
+        }
+      },
+    };
+    const attachmentLinks: AttachmentLink[] = Array.from({ length: 65 }, (_, index) => ({
+      id: `attachment-${index}`,
+      ext: ".txt",
+      originalFileName: `attachment-${index}.txt`,
+      name: `attachment-${index}`,
+      missed: false,
+      used: true,
+    }));
+    const generation = generateAttachmentsFiles(writer, attachmentLinks, async () => writtenContent);
+
+    try {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(startedWrites).toContain("attachment-64.txt");
+    } finally {
+      releaseSlowWrite();
+      await generation;
+    }
+
+    expect(new Set(startedWrites)).toEqual(new Set(attachmentLinks.map(({ id, ext }) => `${id}${ext}`)));
+  });
+
   // Catches replacing the existing two-argument call for attachments without optional length metadata.
   it("should read attachment content concurrently", async () => {
     const writtenContent = { kind: "attachment" } as ResultFile;
