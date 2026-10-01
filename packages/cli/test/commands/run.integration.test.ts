@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { formatProcessLogAttachmentName } from "@allurereport/plugin-agent";
@@ -163,6 +163,42 @@ describe("run command integration", () => {
       expect(stdout).toContain("allure agent --rerun-from <output-dir> -- <command>");
       expect(stdout).toContain("ALLURE_AGENT_STATE_DIR=<dir>");
     });
+  }, 240_000);
+
+  it("loads only the awesome command module for an exact awesome invocation", async () => {
+    const loaderPath = join(tempDir, "import-tracing-loader.mjs");
+    const importLogPath = join(tempDir, "awesome-imports.log");
+    const loaderUrl = pathToFileURL(loaderPath).href;
+
+    await writeFile(
+      loaderPath,
+      `import { appendFileSync } from "node:fs";
+
+export async function load(url, context, nextLoad) {
+  if (url.startsWith("file:")) {
+    appendFileSync(process.env.ALLURE_IMPORT_LOG, \`\${url}\\n\`);
+  }
+
+  return nextLoad(url, context);
+}
+`,
+      "utf-8",
+    );
+
+    const result = await runCommand(process.execPath, [cliPath, "awesome", "--help"], {
+      env: {
+        ALLURE_IMPORT_LOG: importLogPath,
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--experimental-loader=${loaderUrl}`].filter(Boolean).join(" "),
+      },
+    });
+    const importedModules = await readFile(importLogPath, "utf-8");
+
+    await attachCommandOutput("awesome help", result);
+    await attachment("awesome imported modules", importedModules, "text/plain");
+    expect(result.stdout).toContain("Generates Allure Awesome report");
+    expect(importedModules).toContain("/commands/awesome.js");
+    expect(importedModules).not.toContain("/commands/agent.js");
+    expect(importedModules).not.toContain("/commands/generate.js");
   }, 240_000);
 
   it("prints structured agent capabilities from the built CLI", async () => {
