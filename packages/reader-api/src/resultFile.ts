@@ -19,6 +19,9 @@ import { lookup } from "mime-types";
 import { detectContentType } from "./detect.js";
 import { extension } from "./utils.js";
 
+const isMissingFileError = (error: unknown): boolean =>
+  typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+
 export abstract class BaseResultFile implements ResultFile {
   fileName: string;
   extension: string | false = false;
@@ -159,11 +162,14 @@ export class PathResultFile extends BaseResultFile {
       return await super.asJson<T>();
     }
 
-    if (!existsSync(this.path)) {
-      return undefined;
+    try {
+      return JSON.parse(await readFile(this.path, "utf8")) as T;
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return undefined;
+      }
+      throw error;
     }
-
-    return JSON.parse(await readFile(this.path, "utf8")) as T;
   }
 
   async asBuffer(): Promise<Buffer | undefined> {
@@ -171,11 +177,14 @@ export class PathResultFile extends BaseResultFile {
       return await super.asBuffer();
     }
 
-    if (!existsSync(this.path)) {
-      return undefined;
+    try {
+      return await readFile(this.path);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        return undefined;
+      }
+      throw error;
     }
-
-    return await readFile(this.path);
   }
 }
 

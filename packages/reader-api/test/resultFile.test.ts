@@ -1,14 +1,28 @@
-import { ReadStream } from "node:fs";
+import { ReadStream, existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { epic, feature, label, story } from "allure-js-commons";
 import { extension } from "mime-types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BufferResultFile, PathResultFile } from "../src/index.js";
 import { buildResourcePath, readResource, resources } from "./utils.js";
+
+const originalExistsSync = vi.hoisted(() => ({
+  value: undefined as typeof existsSync | undefined,
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs")>();
+  originalExistsSync.value = original.existsSync;
+
+  return {
+    ...original,
+    existsSync: vi.fn(original.existsSync),
+  };
+});
 
 class VirtualContentPathResultFile extends PathResultFile {
   constructor(
@@ -28,6 +42,10 @@ beforeEach(async () => {
   await feature("reading");
   await story("resultFile");
   await label("coverage", "reading");
+});
+
+afterEach(() => {
+  vi.mocked(existsSync).mockImplementation(originalExistsSync.value!);
 });
 
 describe("BufferResultFile", () => {
@@ -128,6 +146,29 @@ describe("PathResultFile", () => {
     const resultFile = new PathResultFile(buildResourcePath("missing.txt"));
 
     await expect(resultFile.asBuffer()).resolves.toBeUndefined();
+  });
+
+  it("should read an existing exact path even when existsSync reports it missing", async () => {
+    const path = buildResourcePath("sample.png");
+    const resultFile = new PathResultFile(path, "sample.png");
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    const outputBuffer = await resultFile.asBuffer();
+
+    expect(outputBuffer?.equals(await readResource("sample.png"))).toBe(true);
+  });
+
+  it("should parse existing exact JSON even when existsSync reports it missing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "allure-reader-api-result-file-"));
+    const path = join(directory, "result.json");
+    await writeFile(path, '{"status":"passed"}', "utf8");
+    vi.mocked(existsSync).mockReturnValue(false);
+
+    try {
+      await expect(new PathResultFile(path).asJson()).resolves.toEqual({ status: "passed" });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("should parse JSON from custom content when the path is missing", async () => {
